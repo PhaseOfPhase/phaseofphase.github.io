@@ -69,16 +69,16 @@ Vấn đề "loãng context" mà tác giả nêu được industry gọi là **c
 
 ### 2. Tổng hợp Ưu - Nhược điểm khi áp dụng ý tưởng gốc vào bài toán Agent
 
-| Khía cạnh | Đánh giá |
-|---|---|
-| **Tư duy nén N-token → 1 unit** | ✅ Đúng hướng, đã được literature xác nhận |
-| **Adaptive granularity dựa trên semantic shift** | ✅ Điểm mạnh nhất, có thể giữ nguyên |
-| **Dùng Mamba làm compressor** | ⚠️ Khả thi nếu fine-tune, nhưng không thể dùng với LLM closed-source |
-| **Window size cố định (10 token)** | ❌ Không phù hợp cho Agent - nên thay bằng semantic boundary |
-| **Null token padding** | ❌ Artifact của hardware constraint, không cần thiết cho Agent |
-| **Nén ở token/latent level** | ⚠️ Chỉ khả thi với open-source model hoặc custom architecture |
-| **Nén ở text/semantic level** | ✅ Phù hợp cho mọi LLM (kể cả API-only) |
-| **Phát hiện information boundary** | ✅ Cần thiết và là điểm khác biệt so với rolling window cơ bản |
+| Khía cạnh                                        | Đánh giá                                                             |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| **Tư duy nén N-token → 1 unit**                  | ✅ Đúng hướng, đã được literature xác nhận                           |
+| **Adaptive granularity dựa trên semantic shift** | ✅ Điểm mạnh nhất, có thể giữ nguyên                                 |
+| **Dùng Mamba làm compressor**                    | ⚠️ Khả thi nếu fine-tune, nhưng không thể dùng với LLM closed-source |
+| **Window size cố định (10 token)**               | ❌ Không phù hợp cho Agent - nên thay bằng semantic boundary         |
+| **Null token padding**                           | ❌ Artifact của hardware constraint, không cần thiết cho Agent       |
+| **Nén ở token/latent level**                     | ⚠️ Chỉ khả thi với open-source model hoặc custom architecture        |
+| **Nén ở text/semantic level**                    | ✅ Phù hợp cho mọi LLM (kể cả API-only)                              |
+| **Phát hiện information boundary**               | ✅ Cần thiết và là điểm khác biệt so với rolling window cơ bản       |
 
 ---
 
@@ -92,7 +92,6 @@ Vấn đề "loãng context" mà tác giả nêu được industry gọi là **c
 - **Cross-modal compression** (Feb 2026): Trong multi-agent debate, visual compression đạt 92% token reduction so với text-based, vì vision tokens tự nhiên capture structural relationships và logical flow - outperform cả text-with-summarization về accuracy.
 
 **Kết luận phần 1:** Ý tưởng của tác giả có **kernel rất tốt** - đặc biệt là adaptive granularity dựa trên semantic shift. Điểm cần "dịch chuyển" là: bỏ ràng buộc từ hardware (window cố định, null padding, Mamba bắt buộc), và reframe thành một **hierarchical semantic compression system** với dynamic boundary detection hoạt động ở text/embedding level, có thể tích hợp vào bất kỳ LLM-based agent nào. Đây sẽ là nền tảng cho các đề xuất ở bước tiếp theo.
-
 
 ---
 
@@ -121,11 +120,13 @@ Thay vì nén theo N turn cố định, agent phát hiện **episode boundary** 
 HiAgent và các framework tương tự đã validate hướng này: chúng chunk working memory dựa trên subgoal completion - khi một goal được giải quyết xong thì nén toàn bộ chuỗi action-observation thành một summary ngắn gọn, giữ lại thông tin hierarchical và hỗ trợ efficient retrieval.
 
 **Ưu điểm:**
+
 - Không yêu cầu thay đổi kiến trúc LLM - hoạt động hoàn toàn ở application layer
 - Ranh giới episode có ý nghĩa ngữ nghĩa, không phải artifact của window size
 - Incremental: không cần reprocess toàn bộ history khi có turn mới
 
 **Nhược điểm:**
+
 - Threshold $\theta$ cần calibrate per domain
 - Mất mát thông tin khi nén là không thể tránh khỏi hoàn toàn
 - Không giải quyết được vấn đề "cross-episode reasoning" - khi thông tin cần thiết trải dài qua nhiều episode khác nhau
@@ -139,6 +140,7 @@ HiAgent và các framework tương tự đã validate hướng này: chúng chun
 **Cơ chế hoạt động:**
 
 Mỗi turn hoặc segment của context được gán 2 thuộc tính:
+
 - $g \in \{0, 1, 2, 3\}$: granularity level (0 = raw, 3 = chỉ giữ metadata)
 - $i \in [0, 1]$: importance score (tính dựa trên frequency of reference, recency, và semantic centrality)
 
@@ -153,11 +155,13 @@ $$i = \alpha \cdot r + \beta \cdot f + \gamma \cdot c$$
 Trong đó $r$ là recency decay, $f$ là reference frequency (bao nhiêu lần turn sau đề cập lại segment này), $c$ là semantic centrality (cosine similarity với mean embedding của toàn bộ task).
 
 **Ưu điểm:**
+
 - Giải quyết được "loãng context" triệt để hơn - những gì quan trọng luôn ở granularity cao
 - Adaptive: không cần threshold tĩnh
 - Reference frequency $f$ capture được "bộ nhớ làm việc" của agent - những gì nó hay quay lại
 
 **Nhược điểm:**
+
 - Chi phí tính importance score mỗi turn là $O(n)$ với $n$ là số segment trong store
 - $\alpha, \beta, \gamma$ là hyperparameter - cần tuning
 - Reference frequency chỉ có thể tính retrospectively, không predictive
@@ -198,11 +202,13 @@ Trong các hệ thống multi-agent tiên tiến, khi agent giải quyết một
 Mem0g đã validate cách tiếp cận graph-based: hệ thống phân tích entity và context trong conversation để nhận diện các kết nối có ý nghĩa semantic, phân loại relationship với label phù hợp, tạo thành relationship triplet làm edge trong memory graph - cho phép complex reasoning qua interconnected information.
 
 **Ưu điểm:**
+
 - Giải quyết được cross-episode reasoning qua graph traversal
 - Episodic → Semantic consolidation ngăn context không bị "flatten" theo thời gian
 - Graph structure cho phép efficient retrieval theo entity, không chỉ theo thời gian
 
 **Nhược điểm:**
+
 - Phức tạp nhất trong 3 phương pháp đầu - overhead của graph maintenance là đáng kể
 - Entity extraction và relationship labeling cần thêm LLM call
 - Graph có thể bị "fragmented" nếu agent làm nhiều task không liên quan
@@ -242,11 +248,13 @@ Với $C_{max}$ là context window size, $|s|$ là length của segment $s$, và
 Production systems tốt nhất hiện tại đã validate rằng multi-turn workflows với hàng chục tool call cần external memory và selective context injection - không thể dùng một kỹ thuật duy nhất. HCOAG giải quyết điều này bằng cách treat context như một constrained resource cần được actively managed.
 
 **Ưu điểm:**
+
 - Proactive thay vì reactive - không đợi đến khi context đầy mới xử lý
 - Overflow-aware: tránh được trường hợp nén quá mức gây mất thông tin quan trọng
 - Compression ratio có thể được điều chỉnh liên tục, không phải one-shot decision
 
 **Nhược điểm:**
+
 - Semantic density estimation bản thân đã là một bài toán khó - cần either lightweight model hoặc heuristic
 - Budget management thêm một lớp state cần maintain
 - Khi toàn bộ context đều high-density (ví dụ agent đang làm task kỹ thuật phức tạp), không có segment nào để nén mạnh - vẫn cần cơ chế fallback
@@ -255,16 +263,16 @@ Production systems tốt nhất hiện tại đã validate rằng multi-turn wor
 
 ### So sánh tổng quan 4 phương pháp
 
-| Tiêu chí | SBIS (P1) | DGCI (P2) | ESCDG (P3) | HCOAG (P4) |
-|---|---|---|---|---|
-| **Complexity triển khai** | Thấp | Trung bình | Cao | Cao |
-| **Chống context dilution** | Tốt | Rất tốt | Rất tốt | Tốt |
-| **Cross-episode reasoning** | Yếu | Trung bình | Mạnh | Trung bình |
-| **Proactive management** | Không | Không | Không | Có |
-| **Latency overhead** | Thấp | Trung bình | Cao | Trung bình |
-| **Phù hợp closed LLM (API)** | Hoàn toàn | Hoàn toàn | Hoàn toàn | Hoàn toàn |
-| **Persist across session** | Không tự nhiên | Không tự nhiên | Có (Semantic KB) | Cần thêm |
-| **Gốc từ ý tưởng ban đầu** | Trực tiếp | Gián tiếp | Gián tiếp | Trực tiếp |
+| Tiêu chí                     | SBIS (P1)      | DGCI (P2)      | ESCDG (P3)       | HCOAG (P4) |
+| ---------------------------- | -------------- | -------------- | ---------------- | ---------- |
+| **Complexity triển khai**    | Thấp           | Trung bình     | Cao              | Cao        |
+| **Chống context dilution**   | Tốt            | Rất tốt        | Rất tốt          | Tốt        |
+| **Cross-episode reasoning**  | Yếu            | Trung bình     | Mạnh             | Trung bình |
+| **Proactive management**     | Không          | Không          | Không            | Có         |
+| **Latency overhead**         | Thấp           | Trung bình     | Cao              | Trung bình |
+| **Phù hợp closed LLM (API)** | Hoàn toàn      | Hoàn toàn      | Hoàn toàn        | Hoàn toàn  |
+| **Persist across session**   | Không tự nhiên | Không tự nhiên | Có (Semantic KB) | Cần thêm   |
+| **Gốc từ ý tưởng ban đầu**   | Trực tiếp      | Gián tiếp      | Gián tiếp        | Trực tiếp  |
 
 ---
 
@@ -427,14 +435,14 @@ Kết hợp semantic similarity với query $q$ và importance score $i_e$ của
 
 ### Điểm khác biệt cốt lõi so với các hệ thống hiện tại
 
-| Đặc điểm | Rolling Window | Hierarchical Summarization thông thường | **CASCADE** |
-|---|---|---|---|
-| Boundary detection | Cố định (N turn) | Cố định (N turn) | Semantic shift động |
-| Compression uniformity | Uniform | Uniform | Asymmetric (skeleton lossless) |
-| Cross-session persistence | Không | Không | Có (Semantic Vault) |
-| Proactive overflow management | Không | Không | Có |
-| Cross-episode reasoning | Không | Yếu | Graph traversal |
-| Episodic → Semantic consolidation | Không | Không | Có |
+| Đặc điểm                          | Rolling Window   | Hierarchical Summarization thông thường | **CASCADE**                    |
+| --------------------------------- | ---------------- | --------------------------------------- | ------------------------------ |
+| Boundary detection                | Cố định (N turn) | Cố định (N turn)                        | Semantic shift động            |
+| Compression uniformity            | Uniform          | Uniform                                 | Asymmetric (skeleton lossless) |
+| Cross-session persistence         | Không            | Không                                   | Có (Semantic Vault)            |
+| Proactive overflow management     | Không            | Không                                   | Có                             |
+| Cross-episode reasoning           | Không            | Yếu                                     | Graph traversal                |
+| Episodic → Semantic consolidation | Không            | Không                                   | Có                             |
 
 ---
 
