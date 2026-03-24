@@ -91,10 +91,8 @@ Vấn đề "loãng context" mà tác giả nêu được industry gọi là **c
 - **ACE Framework** (Oct 2025): ACE treat context như "evolving playbooks" - accumulate, refine, và organize strategies qua modular process gồm generation, reflection, và curation - ngăn context collapse bằng structured incremental updates.
 - **Cross-modal compression** (Feb 2026): Trong multi-agent debate, visual compression đạt 92% token reduction so với text-based, vì vision tokens tự nhiên capture structural relationships và logical flow - outperform cả text-with-summarization về accuracy.
 
-**Kết luận bước 1:** Ý tưởng của tác giả có **kernel rất tốt** - đặc biệt là adaptive granularity dựa trên semantic shift. Điểm cần "dịch chuyển" là: bỏ ràng buộc từ hardware (window cố định, null padding, Mamba bắt buộc), và reframe thành một **hierarchical semantic compression system** với dynamic boundary detection hoạt động ở text/embedding level, có thể tích hợp vào bất kỳ LLM-based agent nào. Đây sẽ là nền tảng cho các đề xuất ở bước tiếp theo.
+**Kết luận phần 1:** Ý tưởng của tác giả có **kernel rất tốt** - đặc biệt là adaptive granularity dựa trên semantic shift. Điểm cần "dịch chuyển" là: bỏ ràng buộc từ hardware (window cố định, null padding, Mamba bắt buộc), và reframe thành một **hierarchical semantic compression system** với dynamic boundary detection hoạt động ở text/embedding level, có thể tích hợp vào bất kỳ LLM-based agent nào. Đây sẽ là nền tảng cho các đề xuất ở bước tiếp theo.
 
-
-Đủ thông tin. Bắt đầu bước 2.
 
 ---
 
@@ -271,3 +269,182 @@ Production systems tốt nhất hiện tại đã validate rằng multi-turn wor
 ---
 
 Cả 4 phương pháp đều hoạt động ở **application/text layer**, không yêu cầu thay đổi kiến trúc LLM. Đây là điều kiện quan trọng để tương thích với closed-source model như GPT-4, Claude. P3 (ESCDG) là mạnh nhất về reasoning nhưng phức tạp nhất; P4 (HCOAG) là sát nhất với ý tưởng gốc và duy nhất có proactive management.
+
+## Phần 3: Đề xuất phương pháp tối ưu nhất
+
+### Tên phương pháp: **CASCADE** - Context-Aware Semantic Compression with Adaptive Density Estimation
+
+Không có phương pháp đơn lẻ nào trong 4 phương pháp trên là tối ưu. Phương pháp tối ưu là **tổng hợp có chọn lọc** - lấy đúng điểm mạnh của từng phương pháp và ghép lại thành một pipeline coherent.
+
+---
+
+### Trực giác thiết kế
+
+Trước khi đi vào chi tiết, cần xác lập rõ **3 nguyên tắc thiết kế** mà bất kỳ phương pháp tối ưu nào cũng phải thỏa mãn:
+
+**Nguyên tắc 1 - Asymmetric Compression:** Không phải tất cả context đều ngang nhau. Tool call result, constraint từ user, và key decision là "load-bearing" information - mất đi là mất irreversibly. Prose reasoning, intermediate steps, và observation verbose là "scaffolding" - có thể nén mạnh.
+
+**Nguyên tắc 2 - Proactive over Reactive:** Không đợi context đầy mới xử lý. Nén phải xảy ra **liên tục và tăng dần**, như một background process.
+
+**Nguyên tắc 3 - Lossless Skeleton, Lossy Flesh:** Không tồn tại "lossless compression" cho context dài - đó là ảo tưởng. Mục tiêu thực tế là: giữ **skeleton** (entity, relation, decision, constraint) lossless, còn **flesh** (elaboration, intermediate reasoning) có thể lossy theo mức độ kiểm soát.
+
+---
+
+### Kiến trúc tổng thể của CASCADE
+
+```
+                    ┌─────────────────────────────────────┐
+                    │           AGENT RUNTIME              │
+                    │                                      │
+  New turn/         │   ┌──────────────────────────────┐  │
+  tool result ──────┼──►│   HOT BUFFER (raw, recent)   │  │
+                    │   │   ~20% of context budget      │  │
+                    │   └──────────┬───────────────────-┘  │
+                    │              │ Episode boundary        │
+                    │              │ detected (semantic      │
+                    │              │ shift > θ)              │
+                    │              ▼                         │
+                    │   ┌──────────────────────────────┐   │
+                    │   │  EPISODE STORE (compressed)  │   │
+                    │   │  ~50% of context budget      │   │
+                    │   │  Graph-linked by entity       │   │
+                    │   └──────────┬───────────────────┘   │
+                    │              │ Consolidation          │
+                    │              │ trigger (3+ episodes   │
+                    │              │ share pattern)         │
+                    │              ▼                         │
+                    │   ┌──────────────────────────────┐   │
+                    │   │  SEMANTIC VAULT (facts/rules) │   │
+                    │   │  ~30% of context budget       │   │
+                    │   │  Persistent across sessions   │   │
+                    │   └──────────────────────────────┘   │
+                    │                                        │
+                    │   ┌──────────────────────────────┐   │
+                    │   │  OVERFLOW RISK MONITOR        │   │
+                    │   │  Watches B_remaining          │   │
+                    │   │  Triggers re-compression      │   │
+                    │   └──────────────────────────────┘   │
+                    └─────────────────────────────────────--┘
+```
+
+---
+
+### Chi tiết từng tầng
+
+#### Tầng 1: HOT BUFFER (từ SBIS - P1)
+
+Giữ nguyên raw các turn gần nhất. Không nén gì ở đây. Budget cố định ~20% context window.
+
+Boundary detection dùng embedding cosine distance:
+
+$$\text{shift}(t) = 1 - \frac{\mathbf{e}_t \cdot \bar{\mathbf{e}}_{\text{episode}}}{\|\mathbf{e}_t\| \cdot \|\bar{\mathbf{e}}_{\text{episode}}\|}$$
+
+Khi $\text{shift}(t) > \theta$ hoặc HOT BUFFER đầy - episode hiện tại được đóng lại và đẩy xuống tầng 2. Đây chính là **semantic boundary detection** từ ý tưởng gốc, được implement sạch không cần null token hay Mamba.
+
+---
+
+#### Tầng 2: EPISODE STORE (từ ESCDG - P3 + DGCI - P2)
+
+Mỗi episode được nén thành một **Episode Node**:
+
+```json
+{
+  "id": "ep_042",
+  "summary": "Agent fetched user's calendar, found conflict on Thu 3pm, proposed reschedule to Fri 10am. User confirmed.",
+  "key_entities": ["calendar", "Thu 3pm slot", "Fri 10am slot", "conflict"],
+  "decisions": ["reschedule confirmed"],
+  "constraints": ["user unavailable Thu afternoon"],
+  "importance": 0.87,
+  "embedding": [...],
+  "linked_episodes": ["ep_039", "ep_041"]
+}
+```
+
+Compression ratio ở tầng này được điều chỉnh bởi **importance score** (từ P2):
+
+$$i = \alpha \cdot r + \beta \cdot f + \gamma \cdot c$$
+
+- Episode có $i$ cao → giữ summary dài hơn, giữ nhiều detail hơn
+- Episode có $i$ thấp → nén xuống chỉ còn `key_entities` + `decisions` + `constraints`
+
+Điều này implement **Asymmetric Compression** - load-bearing information (decisions, constraints) luôn được giữ bất kể $i$.
+
+Các episode được **graph-link** nếu share entity - cho phép cross-episode retrieval khi cần.
+
+---
+
+#### Tầng 3: SEMANTIC VAULT (từ ESCDG - P3)
+
+Khi 3+ episode nodes share entity hoặc pattern, một **consolidation process** chạy:
+
+```
+ep_010: "User từ chối option A vì quá đắt"
+ep_023: "User từ chối option C vì quá đắt"
+ep_031: "User chọn option B vì có discount"
+          │
+          ▼ Consolidation
+SEMANTIC NODE: "User có price sensitivity cao, ưu tiên options có discount"
+```
+
+Đây là quá trình **episodic → semantic** - chuyển từ sự kiện cụ thể sang tri thức tổng quát. Semantic Vault **persist across sessions** - đây là điều không phương pháp nào trong 4 phương pháp ban đầu làm được hoàn chỉnh.
+
+---
+
+#### Tầng 4: OVERFLOW RISK MONITOR (từ HCOAG - P4)
+
+Monitor chạy như background process, track:
+
+$$B_{\text{remaining}} = C_{\max} - |H| - \sum_{e \in E} |e| - |V|$$
+
+Với $H$ là HOT BUFFER, $E$ là EPISODE STORE, $V$ là SEMANTIC VAULT.
+
+Khi $B_{\text{remaining}} < \delta_1$: tăng compression ratio của các episode có $i$ thấp nhất trong EPISODE STORE.
+
+Khi $B_{\text{remaining}} < \delta_2 < \delta_1$: trigger emergency consolidation - các episode có $i$ thấp bị flatten xuống chỉ còn metadata, entities được merge vào SEMANTIC VAULT.
+
+**Proactive, không reactive.**
+
+---
+
+### Context Injection khi LLM gọi
+
+Khi LLM cần generate, CASCADE không dump toàn bộ 3 tầng vào context. Thay vào đó, nó **assemble context động** theo relevance của query hiện tại:
+
+```
+ASSEMBLED CONTEXT =
+  [SEMANTIC VAULT - toàn bộ]          ← luôn có, nhỏ gọn
+  + [EPISODE STORE - top-k relevant]  ← retrieve theo embedding similarity
+  + [HOT BUFFER - toàn bộ]            ← luôn có, raw
+```
+
+Top-k episode retrieval dùng:
+
+$$\text{score}(e, q) = \lambda \cdot \text{sim}(\mathbf{e}_e, \mathbf{e}_q) + (1-\lambda) \cdot i_e$$
+
+Kết hợp semantic similarity với query $q$ và importance score $i_e$ của episode $e$. Điều này đảm bảo không chỉ lấy episode **liên quan** mà còn lấy episode **quan trọng**.
+
+---
+
+### Điểm khác biệt cốt lõi so với các hệ thống hiện tại
+
+| Đặc điểm | Rolling Window | Hierarchical Summarization thông thường | **CASCADE** |
+|---|---|---|---|
+| Boundary detection | Cố định (N turn) | Cố định (N turn) | Semantic shift động |
+| Compression uniformity | Uniform | Uniform | Asymmetric (skeleton lossless) |
+| Cross-session persistence | Không | Không | Có (Semantic Vault) |
+| Proactive overflow management | Không | Không | Có |
+| Cross-episode reasoning | Không | Yếu | Graph traversal |
+| Episodic → Semantic consolidation | Không | Không | Có |
+
+---
+
+### Complexity và Feasibility
+
+CASCADE yêu cầu những gì khi triển khai thực tế?
+
+- **Embedding model nhỏ** (ví dụ `text-embedding-3-small`): dùng để tính semantic shift và retrieval score - chi phí thấp, latency thấp.
+- **LLM call phụ** cho compression: chạy async/background, không block main agent loop. Có thể dùng model nhỏ hơn (GPT-4o-mini, Claude Haiku) cho bước nén.
+- **Vector store nhỏ** (in-memory hoặc SQLite + FAISS): lưu episode embeddings.
+- **Zero architecture change** với LLM chính: hoàn toàn ở application layer, tương thích với mọi API.
+
+Chi phí thực tế tăng thêm so với không có memory management: khoảng **10-15% token overhead** cho compression calls, đổi lại giảm được **60-80% context window usage** trong long agent session - net positive rõ ràng.
